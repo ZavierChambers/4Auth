@@ -1,140 +1,259 @@
-# 🔐 4Auth — Quad-Factor Authentication for High-Security Python Applications
+# 🔐 4Auth — Quad-Factor Authentication System  
+*A Identity & Access Control Framework for Python Applications*
 
-## Abstract
+4Auth is a hardened multi-factor authentication system built with Python.  
+It combines **cryptography**, **biometrics**, **network security**, and a **TLS-enabled client–server architecture** into a single high‑security authentication workflow.
 
-Providing authorization to highly sensitive applications is essential to the protection of confidential or classified data. Companies fear statistics such as one from Cybers Guards stating that *“Every 39 seconds, a hacker attempts an attack somewhere on the internet.”* This means the work factor for attackers to break into systems or applications must be increasingly effective in a world where login portals are in front of nearly every major application on the web.
+This README explains the system in detail based directly on the actual source code I've made in:
 
-To protect digital resources, organizations employ a branch of cybersecurity called **Identity and Access Management (IAM)** — a framework for controlling access to sensitive systems and data. The IAM principle relies on requiring users to verify their identity through one or more **access control factors**, commonly categorized as:
-
-- **Something you know** (e.g., password)
-- **Something you have** (e.g., security token or OTP)
-- **Something you are** (e.g., biometrics)
-- **Somewhere you are** (e.g., geolocation)
-- **Something you do** (e.g., behavioral patterns)
-
-Each factor adds a layer of defense, but individually, they can still be compromised. To mitigate this risk, systems employ **multi-factor authentication (MFA)** — combining multiple factors so that breaching one alone is insufficient to gain access.
-
-**4Auth** takes this concept further. It enforces **four distinct factors of authentication** for highly sensitive applications written in Python, creating a security model designed to withstand both brute-force and identity-based attacks.
+- `better_admin.py` — TLS server, database, verification pipeline  
+- `better_client.py` — TLS client, webcam capture, login/register flows  
 
 ---
 
-## 🔧 Introduction
+# 🚀 Project Purpose
 
-**4Auth** significantly increases the security of any login portal by combining multiple independent authentication mechanisms. By enforcing a high *work factor*, 4Auth makes it exceptionally difficult for attackers to compromise an account, even if one or more factors are partially exposed.
+4Auth was designed as a combined **Computer Security** and **Computer Networks** final project.  
 
-The four access control factors implemented are:
+It demonstrates:
 
-| Access Control Factor | Type of Control | Implementing Technology |
-|------------------------|-----------------|--------------------------|
-| **Something you know** | Password | SHA-256 Hashed Password Storage |
-| **Something you have** | One-Time Password (OTP) | Microsoft Authenticator |
-| **Something you are** | Face ID Recognition | DeepFace (Python Module) |
-| **Some defined time** | Time-Based Access Control | Current Time = Defined Time Comparison |
-
-Each factor has its own role, strengths, and limitations, but together they form a powerful composite security system.
-
----
-
-## 🧠 System Design Overview
-
-### 1. Something You Know — Password
-
-**Overview:**  
-Users authenticate using a username and password pair. Passwords are hashed using the **SHA-256** algorithm before being stored to prevent plaintext exposure.
-
-**Technology Used:**  
-- `hashlib` (Python Standard Library)
-
-**Strengths:**  
-- Simple and well-understood.  
-- Resistant to plaintext theft when hashed correctly.
-
-**Weaknesses:**  
-- Vulnerable to credential leaks or brute-force attacks if password hygiene is poor.
+- Secure handling of authentication factors  
+- Encrypted storage of sensitive data  
+- Client–Server TCP communication using SSL  
+- JSON-formatted protocol messages  
+- Biometric verification using DeepFace  
+- TOTP-based device-linked authentication  
+- MAC address and time verification  
+- Full audit logging  
 
 ---
 
-### 2. Something You Have — One-Time Password (OTP)
+# 🧩 Quad-Factor Authentication Breakdown
 
-**Overview:**  
-After password validation, users must provide a **One-Time Password** generated from an authenticator app like Microsoft Authenticator.
-
-**Technology Used:**  
-- `pyotp` for TOTP (Time-based One-Time Passwords)
-
-**Strengths:**  
-- Dynamic, time-sensitive codes reduce exposure to replay attacks.  
-- Adds an independent second factor tied to a physical device.
-
-**Weaknesses:**  
-- Device loss or time drift may temporarily block legitimate access.  
+4Auth requires **all four** identity checks to succeed in order to authenticate a user.
 
 ---
 
-### 3. Something You Are — Face ID Recognition
+## 1. 🗝️ Password — *Something You Know*
 
-**Overview:**  
-A biometric layer using **DeepFace** ensures that the user physically matches their registered face.
+### How it's implemented
+- Passwords are hashed using **bcrypt** with per-user random salt.
+- Password policy enforced in `validate_password_policy()`:
+  - Minimum 8 characters  
+  - Must contain uppercase or digit or special character  
 
-**Technology Used:**  
-- `deepface` (Open Source Python Facial Recognition Library)
+### Storage
+- Stored in SQLite under `password_hash` (binary hash).
 
-**Strengths:**  
-- Difficult to spoof without physical likeness.  
-- Provides human identity assurance beyond credentials.
-
-**Weaknesses:**  
-- Sensitive to lighting and camera quality.  
-- Privacy and data storage of facial templates require careful handling.
-
----
-
-### 4. Some Defined Time — Time-Based Access Context
-
-**Overview:**  
-Adds a temporal access rule — authentication is only valid within a defined time range or synchronized time window.
-
-**Technology Used:**  
-- Python `datetime` module for precise time comparison.
-
-**Strengths:**  
-- Mitigates automated overnight or off-hour attacks.  
-- Adds an environmental constraint to login attempts.
-
-**Weaknesses:**  
-- Legitimate users may face access limitations outside defined time frames.  
+### Security Benefits
+- Resistant to rainbow tables  
+- Salts block precomputation attacks  
+- bcrypt’s adaptive cost increases brute‑force difficulty  
 
 ---
 
-## 🧩 The Power of Four — Combined Authentication
+## 2. 📱 TOTP (Time-based One-Time Password) — *Something You Have*
 
-When all four factors are combined, 4Auth constructs a **multi-layered verification chain** that is exponentially harder to breach than any single factor system. The probability of successful unauthorized access becomes negligible without physical, cognitive, and contextual compromise.
+### How it's implemented
+- During registration, a new Base32 TOTP secret is generated:
+  ```python
+  totp_secret = pyotp.random_base32()
+  ```
+- Secret is encrypted using **Fernet** and stored in `totp_secret_enc`.  
+- A QR code is generated server-side using the provisioning URI:
+  ```
+  otpauth://totp/4Auth-Authentication:<username>?secret=<secret>
+  ```
+- Client scans QR using Microsoft/Google Authenticator.
 
-4Auth’s architecture demonstrates that true digital trust can be engineered — not merely assumed — through compounding layers of identity assurance.
+### Login
+- User enters 6‑digit TOTP  
+- Server decrypts stored secret and verifies via:
+  ```python
+  totp.verify(token)
+  ```
+
+### Security Benefit
+Even if a password leaks, attacker still needs the user’s physical device.
 
 ---
 
-## 🐞 Bugs & Known Issues
+## 3. 🧑‍💻 Facial Recognition — *Something You Are*
 
-| Module | Issue | Status |
-|---------|--------|--------|
-| Password | None known |  |
-| OTP | None known| |
-| Face ID | None known| |
-| Time-Based | None known |  |
+### How it's implemented
+- Client captures a JPEG webcam frame using OpenCV:
+  ```python
+  cv2.VideoCapture()
+  ```
+- Image is base64‑encoded and sent to server.
+
+- Server decrypts stored face image, loads both images, and verifies identity using:
+  ```python
+  DeepFace.verify(probe_img, stored_img)
+  ```
+
+### Storage
+- The facial template is stored as **encrypted PNG bytes** under `face_image_enc`.
+
+### Security Benefit
+- Strong biometric assurance  
+- Cannot be bypassed by knowing passwords or stealing TOTP
 
 ---
 
-## ⚙️ Installation & Setup
+## 4. 💻 MAC Address + Time Verification — *Device & Context*
 
-```bash
-# Clone the repository
-git clone https://github.com/<your-username>/4Auth.git
-cd 4Auth
+### MAC Binding
+- Client collects MAC using:
+  ```python
+  uuid.getnode()
+  ```
+- Server compares against stored MAC to ensure login is from the registered device.
 
-# Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # (Windows: venv\Scripts\activate)
+### Time Skew Verification
+- Client sends current UTC timestamp  
+- Server checks time difference:
+  ```python
+  skew <= 120 seconds
+  ```
 
-# Install dependencies
-pip install -r requirements.txt
+### Security Benefit
+- Prevents replay attacks  
+- Prevents automated authentication from unauthorized machines  
+- Ensures system clock tampering is ineffective  
+
+---
+
+# 🔒 Data Security & Cryptography
+
+## SQLite Tables
+
+### `users` table
+| Field | Description |
+|-------|-------------|
+| username | Primary key |
+| password_hash | bcrypt hash |
+| face_image_enc | Fernet-encrypted PNG bytes |
+| totp_secret_enc | Fernet-encrypted TOTP secret |
+| mac_address | Device binding |
+
+### `access_logs` table
+Records every event:
+- Timestamp  
+- Username  
+- Action (login/register)  
+- Success/fail  
+- Details  
+
+---
+
+# 📦 Encryption & Key Handling
+
+4Auth uses **Fernet symmetric encryption** for:
+- Face images  
+- TOTP secrets  
+
+The key file:
+```
+fernet.key
+```
+is automatically created if missing.
+
+### Why Fernet?
+- AES‑128 in CBC mode  
+- HMAC-SHA256 for integrity  
+- Simple and safe key management  
+
+---
+
+# 📡 Network Protocol (Client ↔ Server)
+
+4Auth uses:
+- Raw TCP socket  
+- Wrapped in **SSL/TLS**  
+- With server certificate `cert.pem` and key `key.pem`
+
+### Message Format
+Each message is:
+
+```
+[4‑byte big-endian length][JSON payload]
+```
+
+Example server command handler:
+
+- `"200"` → Register user  
+- `"100"` → Login attempt  
+
+Responses are structured JSON objects.
+
+---
+
+# 🖥️ Client Program (CLI)
+
+The client provides a menu:
+
+```
+1. Log in
+2. Register Account
+3. Exit
+```
+
+### Registration Flow
+1. Prompt username & password  
+2. Capture face image  
+3. Send MAC  
+4. Server returns QR code for TOTP setup  
+5. QR shown automatically using PIL  
+
+### Login Flow
+1. Username & password  
+2. User enters TOTP code  
+3. Capture face image  
+4. MAC + timestamp auto-attached  
+5. Server returns authentication result  
+
+---
+
+# 🏗️ Server Program (Admin Side)
+
+The server:
+
+- Initializes DB & tables  
+- Loads/creates Fernet key  
+- Listens on `127.0.0.1:65432`  
+- Wraps incoming connection in TLS  
+- Expects JSON commands in a loop  
+- Logs every action  
+- Returns structured JSON responses  
+
+---
+
+# ▶️ Running the System
+
+## Start the Server
+```
+python better_admin.py
+```
+
+## Start the Client
+```
+python better_client.py
+```
+
+---
+
+# 📝 Summary
+
+4Auth is a fully functional, secure authentication pipeline implementing:
+
+- **bcrypt hashing**  
+- **DeepFace biometrics**  
+- **TOTP with QR provisioning**  
+- **Device MAC binding**  
+- **Time-based access control**  
+- **End-to-end TLS encrypted communication**  
+- **Encrypted database secrets**  
+- **Complete logging and auditing**  
+
+It showcases principles from both **Computer Security** and **Computer Networks** in one useful system.
