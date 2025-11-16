@@ -6,8 +6,8 @@ It combines **cryptography**, **biometrics**, **network security**, and a **TLS-
 
 This README explains the system in detail based directly on the actual source code I've made in:
 
-- `better_admin.py` — TLS server, database, verification pipeline  
-- `better_client.py` — TLS client, webcam capture, login/register flows  
+- `4Auth-Server.py` — TLS server, database, verification pipeline  
+- `4Auth_Client.py` — TLS client, webcam capture, login/register flows  
 
 ---
 
