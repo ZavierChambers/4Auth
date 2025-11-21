@@ -513,7 +513,7 @@ def recover_mac(
 
     cursor.execute(
         "UPDATE users SET mac_address=? WHERE username=?",
-        (new_mac,),
+        (new_mac,username),
     )
     conn.commit()
     _log(username, "recover_mac", True, "MAC updated")
