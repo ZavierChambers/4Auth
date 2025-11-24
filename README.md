@@ -1,259 +1,257 @@
-# 🔐 4Auth — Quad-Factor Authentication System  
-*A Identity & Access Control Framework for Python Applications*
+# 🔐 4Auth  
+### Quad-Factor Authentication System for Python Applications  
+*A Combined Computer Security & Computer Networks Final Project*
 
-4Auth is a hardened multi-factor authentication system built with Python.  
-It combines **cryptography**, **biometrics**, **network security**, and a **TLS-enabled client–server architecture** into a single high‑security authentication workflow.
+4Auth is a hardened authentication framework written in Python that enforces **four identity factors** before granting access:
 
-This README explains the system in detail based directly on the actual source code I've made in:
+1. Password (bcrypt-hashed)  
+2. TOTP (authenticator app)  
+3. Face recognition (DeepFace + OpenCV)  
+4. Device & context checks (MAC binding + time skew)
 
-- `4Auth-Server.py` — TLS server, database, verification pipeline  
-- `4Auth_Client.py` — TLS client, webcam capture, login/register flows  
+It uses a **TLS-secured client–server architecture**, an encrypted SQLite database, and a JSON-based protocol over sockets.
 
----
+Core files:
 
-# 🚀 Project Purpose
-
-4Auth was designed as a combined **Computer Security** and **Computer Networks** final project.  
-
-It demonstrates:
-
-- Secure handling of authentication factors  
-- Encrypted storage of sensitive data  
-- Client–Server TCP communication using SSL  
-- JSON-formatted protocol messages  
-- Biometric verification using DeepFace  
-- TOTP-based device-linked authentication  
-- MAC address and time verification  
-- Full audit logging  
+- `server.py` — TLS server, database, crypto, verification pipeline  
+- `client.py` — TLS client, webcam capture, login/register/recovery flows  
 
 ---
 
-# 🧩 Quad-Factor Authentication Breakdown
+## 🎯 Project Goals
 
-4Auth requires **all four** identity checks to succeed in order to authenticate a user.
+4Auth integrates objectives from:
 
----
+### **Computer Security**
+- Multi-factor authentication  
+- Password hashing (bcrypt)  
+- Biometric verification (DeepFace)  
+- Symmetric encryption (Fernet/AES)  
+- Time-based One-Time Passwords (TOTP)  
+- Device identity checking (MAC binding)  
+- Enforcement of password policy  
+- Tamper-resistant time validation  
+- Full logging and auditability  
 
-## 1. 🗝️ Password — *Something You Know*
-
-### How it's implemented
-- Passwords are hashed using **bcrypt** with per-user random salt.
-- Password policy enforced in `validate_password_policy()`:
-  - Minimum 8 characters  
-  - Must contain uppercase or digit or special character  
-
-### Storage
-- Stored in SQLite under `password_hash` (binary hash).
-
-### Security Benefits
-- Resistant to rainbow tables  
-- Salts block precomputation attacks  
-- bcrypt’s adaptive cost increases brute‑force difficulty  
-
----
-
-## 2. 📱 TOTP (Time-based One-Time Password) — *Something You Have*
-
-### How it's implemented
-- During registration, a new Base32 TOTP secret is generated:
-  ```python
-  totp_secret = pyotp.random_base32()
-  ```
-- Secret is encrypted using **Fernet** and stored in `totp_secret_enc`.  
-- A QR code is generated server-side using the provisioning URI:
-  ```
-  otpauth://totp/4Auth-Authentication:<username>?secret=<secret>
-  ```
-- Client scans QR using Microsoft/Google Authenticator.
-
-### Login
-- User enters 6‑digit TOTP  
-- Server decrypts stored secret and verifies via:
-  ```python
-  totp.verify(token)
-  ```
-
-### Security Benefit
-Even if a password leaks, attacker still needs the user’s physical device.
+### **Computer Networks**
+- TCP socket communication  
+- TLS encryption layer  
+- Application protocol design  
+- JSON serialization  
+- Length-prefixed network framing  
+- Multi-threaded client handling  
+- Certificate-driven communication  
 
 ---
 
-## 3. 🧑‍💻 Facial Recognition — *Something You Are*
+## 🧩 Four Identity Factors Required
 
-### How it's implemented
-- Client captures a JPEG webcam frame using OpenCV:
-  ```python
-  cv2.VideoCapture()
-  ```
-- Image is base64‑encoded and sent to server.
+### 1. 🗝️ Password — *Something You Know*
 
-- Server decrypts stored face image, loads both images, and verifies identity using:
-  ```python
-  DeepFace.verify(probe_img, stored_img)
-  ```
+- Hashed with **bcrypt** using per-user salt.
+- Enforced password policy:
+  - Min 8 characters  
+  - Must contain uppercase, digit, or special char  
+- Verified server-side in constant time.
 
-### Storage
-- The facial template is stored as **encrypted PNG bytes** under `face_image_enc`.
+### 2. 📱 TOTP (Time-based One-Time Password) — *Something You Have*
 
-### Security Benefit
-- Strong biometric assurance  
-- Cannot be bypassed by knowing passwords or stealing TOTP
+- Server generates a new Base32 TOTP secret on registration.
+- Stored encrypted via **Fernet**.
+- A provisioning URI + QR code is returned to the client.
+- User scans QR with Google/Microsoft Authenticator.
+- Login uses a 6-digit TOTP verified via `pyotp`.
 
----
+### 3. 🧑‍💻 Facial Recognition — *Something You Are*
 
-## 4. 💻 MAC Address + Time Verification — *Device & Context*
+- Client captures a webcam frame via OpenCV.
+- Encodes JPEG → base64 → sends over TLS.
+- Server decrypts stored face image.
+- DeepFace performs a verification match.
+- Requires real-face presence at login and recovery.
 
-### MAC Binding
-- Client collects MAC using:
-  ```python
-  uuid.getnode()
-  ```
-- Server compares against stored MAC to ensure login is from the registered device.
+### 4. 💻 Device + Time Verification  
+*Somewhere You Are + When You Are*
 
-### Time Skew Verification
-- Client sends current UTC timestamp  
-- Server checks time difference:
-  ```python
-  skew <= 120 seconds
-  ```
+#### **MAC Binding**
+- Account locked to device’s physical MAC.
+- Prevents replay or reuse on unregistered devices.
 
-### Security Benefit
-- Prevents replay attacks  
-- Prevents automated authentication from unauthorized machines  
-- Ensures system clock tampering is ineffective  
+#### **Time Skew Enforcement**
+- Client sends UTC timestamp.
+- Server fetches NTP time via `pool.ntp.org`.
+- Rejects login if skew > 120 seconds.
+- Prevents replay attacks and clock manipulation.
 
 ---
 
-# 🔒 Data Security & Cryptography
+## 🔒 Data Security Architecture
 
-## SQLite Tables
+### **Encrypted Secrets**
+The server stores:
 
-### `users` table
+- Encrypted TOTP secret  
+- Encrypted facial template (PNG bytes)  
+- Bcrypt password hash  
+- Bound MAC address  
+
+### **SQLite Schema**
+
+#### `users` table
 | Field | Description |
 |-------|-------------|
-| username | Primary key |
-| password_hash | bcrypt hash |
-| face_image_enc | Fernet-encrypted PNG bytes |
-| totp_secret_enc | Fernet-encrypted TOTP secret |
-| mac_address | Device binding |
+| `username` | primary key |
+| `password_hash` | bcrypt hash |
+| `face_image_enc` | encrypted PNG |
+| `totp_secret_enc` | encrypted Base32 |
+| `mac_address` | bound device identity |
 
-### `access_logs` table
-Records every event:
-- Timestamp  
-- Username  
-- Action (login/register)  
-- Success/fail  
-- Details  
+#### `access_logs` table  
+| Field | Description |
+|--------|-------------|
+| `id` | autoincrement PK |
+| `ts_utc` | server UTC timestamp |
+| `username` | nullable user |
+| `action` | login/register/recovery |
+| `success` | 1/0 |
+| `detail` | message/details |
 
----
-
-# 📦 Encryption & Key Handling
-
-4Auth uses **Fernet symmetric encryption** for:
-- Face images  
-- TOTP secrets  
-
-The key file:
-```
-fernet.key
-```
-is automatically created if missing.
-
-### Why Fernet?
-- AES‑128 in CBC mode  
-- HMAC-SHA256 for integrity  
-- Simple and safe key management  
+Every login, register, recovery attempt is logged.
 
 ---
 
-# 📡 Network Protocol (Client ↔ Server)
+# 📡 Network Protocol
 
-4Auth uses:
+### **Transport**
 - Raw TCP socket  
-- Wrapped in **SSL/TLS**  
-- With server certificate `cert.pem` and key `key.pem`
+- Wrapped fully in TLS 1.2+  
+- Certificate & private key: `cert.pem`, `key.pem`  
 
-### Message Format
-Each message is:
+### **Message framing**
+Each message uses:
 
-```
-[4‑byte big-endian length][JSON payload]
-```
+[4-byte big-endian length][JSON payload]
 
-Example server command handler:
+This avoids partial reads and guarantees framing even inside TLS.
 
-- `"200"` → Register user  
-- `"100"` → Login attempt  
+### **Command codes**
 
-Responses are structured JSON objects.
+| Code | Meaning |
+|------|---------|
+| `"100"` | Login |
+| `"200"` | Register (admin-only) |
+| `"300"` | Recover TOTP |
+| `"310"` | Recover password |
+| `"320"` | Recover face |
+| `"330"` | Update MAC address |
 
----
+Client sends → server responds with JSON containing:
 
-# 🖥️ Client Program (CLI)
-
-The client provides a menu:
-
-```
-1. Log in
-2. Register Account
-3. Exit
-```
-
-### Registration Flow
-1. Prompt username & password  
-2. Capture face image  
-3. Send MAC  
-4. Server returns QR code for TOTP setup  
-5. QR shown automatically using PIL  
-
-### Login Flow
-1. Username & password  
-2. User enters TOTP code  
-3. Capture face image  
-4. MAC + timestamp auto-attached  
-5. Server returns authentication result  
+- `status`: `"ok"` or `"error"`  
+- `message`: human-readable text  
+- Optional fields like `qr_png_b64` or `provisioning_uri`  
 
 ---
 
-# 🏗️ Server Program (Admin Side)
+## 👤 Client Application (CLI)
 
-The server:
+### **Main Menu**
+Log in
 
-- Initializes DB & tables  
-- Loads/creates Fernet key  
-- Listens on `127.0.0.1:65432`  
-- Wraps incoming connection in TLS  
-- Expects JSON commands in a loop  
-- Logs every action  
-- Returns structured JSON responses  
+Register Account (admin only)
+
+Recovery Options
+
+Exit
+
+### **Login Flow**
+1. Username  
+2. Password  
+3. 6-digit TOTP  
+4. Face capture  
+5. MAC + timestamp auto-attached  
+6. Server returns success/failure  
+7. `login()` returns True/False  
+
+### **Registration Flow**
+- Admin secret required  
+- Username, password  
+- Face capture + MAC  
+- Server returns TOTP QR + provisioning URI  
+
+### **Recovery Menu**
+Recover TOTP
+
+Recover Password
+
+Recover Face
+
+Recover MAC
+
+Each path requires a different combination of MFA components.
 
 ---
 
-# ▶️ Running the System
+## 🖥️ Server Application
 
-## Start the Server
-```
-python better_admin.py
-```
+### At startup:
+- Loads/creates `fernet.key`
+- Creates/open SQLite DB
+- Ensures tables exist
+- Creates TLS context
+- Listens on port 65432
+- Spawns threads per client
 
-## Start the Client
-```
-python better_client.py
-```
+### Server responsibilities:
+- Enforce authentication logic  
+- Verify each MFA factor  
+- Handle secure storage of secrets  
+- Perform biometric matching  
+- Log every action  
+- Return structured JSON  
+
+---
+
+# ▶️ How to Run
+
+### **Start the server**
+python server.py
+
+markdown
+Copy code
+
+### **Start the client**
+python client.py
 
 ---
 
 # 📝 Summary
 
-4Auth is a fully functional, secure authentication pipeline implementing:
+4Auth is a complete, production-style authentication system demonstrating:
 
-- **bcrypt hashing**  
-- **DeepFace biometrics**  
-- **TOTP with QR provisioning**  
-- **Device MAC binding**  
-- **Time-based access control**  
-- **End-to-end TLS encrypted communication**  
-- **Encrypted database secrets**  
-- **Complete logging and auditing**  
+- Bcrypt password hashing  
+- DeepFace biometric authentication  
+- TOTP provisioning and verification  
+- Fernet-encrypted face and TOTP storage  
+- MAC address device binding  
+- Time-skew access protection  
+- End-to-end TLS communication  
+- Full logging of all security events  
+- Custom JSON protocol over sockets  
+- Secure client–server architecture  
 
-It showcases principles from both **Computer Security** and **Computer Networks** in one useful system.
+This project satisfies the learning objectives of **Computer Security** and **Computer Networks**, merging them into one cohesive final deliverable.
+
+---
+
+# 📦 requirements.txt
+
+opencv-python
+numpy
+Pillow
+deepface
+pyotp
+qrcode
+bcrypt
+cryptography
+ntplib
