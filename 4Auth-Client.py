@@ -10,12 +10,11 @@ from PIL import Image
 import io
 
 HOST = "127.0.0.1"
-PORT = 65432
+PORT = 65432   # set as the base port!!!
 
 # ---------------------------
 # Helpers
 # ---------------------------
-
 
 def capture_photo_bytes(device_index: int = 0, warmup_frames: int = 5, jpeg_quality: int = 90) -> bytes:
     cap = cv2.VideoCapture(device_index, cv2.CAP_DSHOW if hasattr(cv2, "CAP_DSHOW") else 0)
@@ -54,7 +53,8 @@ def _json_recv(sock) -> dict:
         data += chunk
     return json.loads(data.decode("utf-8"))
 
-#THIS NEEDS TO RETURN A STANDARD MAC ADDRESS FORMAT
+
+# THIS NEEDS TO RETURN A STANDARD MAC ADDRESS FORMAT
 def get_mac() -> str:
     mac_int = uuid.getnode()
     # Converting to a standard MAC address format
@@ -70,6 +70,7 @@ def show_png_b64(png_b64: str):
     img = Image.open(io.BytesIO(raw))
     img.show()
 
+
 # Current UTC time in ISO 8601 format!!!
 def current_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -82,11 +83,11 @@ def capture_face_b64() -> str:
 
 
 # ---------------------------
-# Flows
+# Main flows
 # ---------------------------
 
 def login(ssock):
-    #Let's use a dictionary to hold user inputs!!
+    # Let's use a dictionary to hold user inputs!!
     user_input_dic = {}
     user_input_dic["cmd"] = "100"
     user_input_dic["username"] = input("Username: ").strip()
@@ -95,10 +96,71 @@ def login(ssock):
     user_input_dic["faceID"] = capture_face_b64()
     user_input_dic["mac"] = get_mac()
     user_input_dic["client_ts_utc"] = current_utc_iso()
+
     # Send the login request
     _json_send(ssock, user_input_dic)
     resp = _json_recv(ssock)
     print("Server:", resp.get("message", resp))
+
+    # ✅ NEW: make this useful to developers!!!!!
+    return resp.get("status") == "ok"
+
+
+def whole_auth_process(host: str = HOST, port: int = PORT) -> bool:
+    """
+    Run the full interactive 4Auth client:
+    - Shows banner + notice
+    - Allows Login, Register, Recovery, Exit
+    - Returns True once a login succeeds
+    - Returns False if user exits or an error occurs without a successful login
+    """
+
+    print(BANNER)
+    print(NOTICE)
+
+    context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE  # dev/testing only BUT OKAY FOR PROJECT!
+
+    try:
+        with socket.create_connection((host, port)) as sock:
+            with context.wrap_socket(sock, server_hostname=host) as ssock:
+                print("Connected to", ssock.getpeername())
+
+                authed = False
+
+                while True:
+                    menu_input = input(
+                        "\nMain Menu:\n"
+                        "1. Log in\n"
+                        "2. Register Account (admin only)\n"
+                        "3. Recovery Options\n"
+                        "4. Exit\n> "
+                    ).strip()
+
+                    if menu_input == "1":
+                        print("Logging In")
+                        if login(ssock):          # login() already returns True/False
+                            authed = True
+                            print("Login successful.")
+                            return True           # ✅ SUCCESS PATH
+                        else:
+                            print("Login failed.")
+                    elif menu_input == "2":
+                        print("Registering an Account")
+                        register_account(ssock)
+                    elif menu_input == "3":
+                        recovery_menu(ssock)
+                    elif menu_input == "4":
+                        print("Exiting")
+                        return authed             # False unless they logged in first before closing the menu, which might not be possible now!
+                    else:
+                        print("Invalid option.")
+
+    except Exception as e:
+        print(f"[4Auth] Error during auth flow: {e}")
+        return False
+
 
 
 def register_account(ssock):
@@ -118,6 +180,7 @@ def register_account(ssock):
 
     if resp.get("status") == "ok":
         print("Account Created. Scan the QR that opens.")
+        # ✅ still opens QR image (Fixed Broken Recovery here!! <----)
         show_png_b64(resp.get("qr_png_b64", ""))
         print("If the QR did not open, use this URI in your authenticator app:")
         print(resp.get("provisioning_uri", ""))
@@ -141,6 +204,7 @@ def recover_totp(ssock):
     resp = _json_recv(ssock)
     print("Server:", resp.get("message", resp))
     if resp.get("status") == "ok":
+        # ✅ still shows QR and URI for recovery!!! shows a pop-up for GUI and CLI URI for headless servers
         show_png_b64(resp.get("qr_png_b64", ""))
         print("New TOTP URI:", resp.get("provisioning_uri", ""))
 
@@ -150,11 +214,11 @@ def recover_password(ssock):
     data = {
         "cmd": "310",
         "username": input("Username: ").strip(),
-        "new_password": input("New Password: ").strip(),
-        "totp": input("Current Authenticator 6-digit code: ").strip(),
+        "totp": input("Authenticator 6-digit code: ").strip(),
         "faceID": capture_face_b64(),
         "mac": get_mac(),
         "client_ts_utc": current_utc_iso(),
+        "new_password": input("New Password: ").strip(),
     }
     _json_send(ssock, data)
     resp = _json_recv(ssock)
@@ -162,13 +226,13 @@ def recover_password(ssock):
 
 
 def recover_face(ssock):
-    print("\n--- Re-enroll Face (need password + TOTP + MAC + time) ---")
+    print("\n--- Recover Face (need password + TOTP + MAC + time) ---")
     data = {
         "cmd": "320",
         "username": input("Username: ").strip(),
         "password": input("Current Password: ").strip(),
-        "totp": input("Current Authenticator 6-digit code: ").strip(),
-        "new_faceID": capture_face_b64(),
+        "totp": input("Authenticator 6-digit code: ").strip(),
+        "new_faceID": capture_face_b64(),   # <-- FIXED
         "mac": get_mac(),
         "client_ts_utc": current_utc_iso(),
     }
@@ -177,16 +241,18 @@ def recover_face(ssock):
     print("Server:", resp.get("message", resp))
 
 
+
 def recover_mac(ssock):
-    print("\n--- Update MAC (need password + TOTP + face + time) ---")
+    print("\n--- Recover MAC (need password + TOTP + face + time) ---")
     data = {
         "cmd": "330",
         "username": input("Username: ").strip(),
         "password": input("Current Password: ").strip(),
-        "totp": input("Current Authenticator 6-digit code: ").strip(),
+        "totp": input("Authenticator 6-digit code: ").strip(),
         "faceID": capture_face_b64(),
-        "new_mac": input("New MAC (or leave blank to use this device's MAC): ").strip() or get_mac(),
+        "mac": get_mac(),
         "client_ts_utc": current_utc_iso(),
+        "new_mac": input("New MAC Address (or leave blank to use this device): ").strip() or get_mac(),
     }
     _json_send(ssock, data)
     resp = _json_recv(ssock)
@@ -195,30 +261,32 @@ def recover_mac(ssock):
 
 def recovery_menu(ssock):
     while True:
-        choice = input(
+        menu_input = input(
             "\nRecovery Menu:\n"
-            "1. Recover TOTP (lost phone)\n"
-            "2. Recover Password (forgot password)\n"
-            "3. Re-enroll Face\n"
-            "4. Update MAC Address\n"
-            "5. Back to main menu\n> "
+            "1. Recover TOTP\n"
+            "2. Recover Password\n"
+            "3. Recover Face\n"
+            "4. Recover MAC\n"
+            "5. Back to Main Menu\n> "
         ).strip()
-        if choice == "1":
+
+        if menu_input == "1":
             recover_totp(ssock)
-        elif choice == "2":
+        elif menu_input == "2":
             recover_password(ssock)
-        elif choice == "3":
+        elif menu_input == "3":
             recover_face(ssock)
-        elif choice == "4":
+        elif menu_input == "4":
             recover_mac(ssock)
-        elif choice == "5":
+        elif menu_input == "5":
+            print("Returning to the Main Menu")
             break
         else:
             print("Invalid option.")
 
 
 # ---------------------------
-# Main
+# CLI banner + main
 # ---------------------------
 
 BANNER = r"""
@@ -239,38 +307,8 @@ NOTICE = r"""
       * Only Authorized Parties should attempt to access the application behind this portal
 
 --------------------------------------------------------------------------------
-
 """
 
-print(BANNER)
-print(NOTICE)
-
-context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-context.check_hostname = False
-context.verify_mode = ssl.CERT_NONE  # dev/testing only
-
-with socket.create_connection((HOST, PORT)) as sock:
-    with context.wrap_socket(sock, server_hostname=HOST) as ssock:
-        print("Connected to", ssock.getpeername())
-        while True:
-            menu_input = input(
-                "\nMain Menu:\n"
-                "1. Log in\n"
-                "2. Register Account (admin only)\n"
-                "3. Recovery Options\n"
-                "4. Exit\n> "
-            ).strip()
-
-            if menu_input == "1":
-                print("Logging In")
-                login(ssock)
-            elif menu_input == "2":
-                print("Registering an Account")
-                register_account(ssock)
-            elif menu_input == "3":
-                recovery_menu(ssock)
-            elif menu_input == "4":
-                print("Exiting")
-                break
-            else:
-                print("Invalid option.")
+if __name__ == "__main__":
+    #THIS VERSION IS DEMO WITH Localhost
+    whole_auth_process()
