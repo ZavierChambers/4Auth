@@ -1,0 +1,9 @@
+opencv-python
+numpy
+Pillow
+deepface
+pyotp
+qrcode
+bcrypt
+cryptography
+ntplib
