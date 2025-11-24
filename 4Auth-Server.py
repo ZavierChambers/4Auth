@@ -26,7 +26,7 @@ PORT = 65432
 # =============================
 # Admin control (only admin can create users)
 # =============================
-# For a real deployment, load from env var or config file.
+# For a real deployment, WE SHOULD load from env var or config file!!!!1
 ADMIN_SHARED_SECRET = "CHANGE_THIS_ADMIN_SECRET"
 
 
@@ -87,10 +87,19 @@ conn.commit()
 # =============================
 
 
-def _b64_to_image(img_b64: str) -> np.ndarray:
-    data = base64.b64decode(img_b64)
-    arr = np.frombuffer(data, np.uint8)
-    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+def _b64_to_image(img_b64: str) -> np.ndarray | None:
+    try:
+        data = base64.b64decode(img_b64)
+        if not data:
+            return None
+        arr = np.frombuffer(data, np.uint8)
+        if arr.size == 0:
+            return None
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        return img
+    except Exception:
+        return None
+
 
 
 def _image_bytes(img: np.ndarray, fmt: str = "PNG") -> bytes:
